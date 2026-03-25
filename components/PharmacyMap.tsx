@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Circle,
   GoogleMap,
@@ -8,7 +15,13 @@ import {
   Marker,
   useJsApiLoader,
 } from "@react-google-maps/api";
-import { distanceKm, NEARBY_RADIUS_KM } from "@/lib/geo";
+import {
+  boundsCornersForRadiusKm,
+  distanceKm,
+  NEARBY_MAP_CIRCLE_RADIUS_M,
+  NEARBY_MAP_FOCUS_RADIUS_KM,
+  NEARBY_RADIUS_KM,
+} from "@/lib/geo";
 import { matchTurkishProvince } from "@/lib/match-turkish-province";
 import { parseLoc, type DutyPharmacy } from "@/lib/pharmacy";
 import { TURKISH_PROVINCES } from "@/lib/provinces";
@@ -25,7 +38,18 @@ const defaultMapOptions: google.maps.MapOptions = {
 
 type DistrictRow = { text: string; pharmacy_number?: string };
 
-type Flow = "choose" | "nearby" | "manual";
+type Flow = "choose" | "manualForm" | "nearby" | "manual";
+
+function fitNearbyMapToUser(
+  map: google.maps.Map,
+  userPos: google.maps.LatLngLiteral
+) {
+  const { southWest, northEast } = boundsCornersForRadiusKm(
+    userPos,
+    NEARBY_MAP_FOCUS_RADIUS_KM
+  );
+  map.fitBounds(new google.maps.LatLngBounds(southWest, northEast), 56);
+}
 
 function distKey(p: DutyPharmacy) {
   return `${p.name}|${p.loc}`;
@@ -63,6 +87,10 @@ export default function PharmacyMap() {
   const [locating, setLocating] = useState(false);
   const [selected, setSelected] = useState<DutyPharmacy | null>(null);
   const [detectedIl, setDetectedIl] = useState<string | null>(null);
+  /** İl/ilçe formu (haritaya geçmeden önce) */
+  const [formIl, setFormIl] = useState("");
+  const [formIlce, setFormIlce] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   const center = useMemo(() => userPos ?? ANKARA_CENTER, [userPos]);
 
@@ -81,11 +109,18 @@ export default function PharmacyMap() {
     setLoading(false);
     setIl("Ankara");
     setIlce("");
+    setFormIl("");
+    setFormIlce("");
+    setFormError(null);
+    setDistricts([]);
   }, []);
 
-  const goToManual = useCallback(() => {
-    setFlow("manual");
+  const goToManualForm = useCallback(() => {
+    setFlow("manualForm");
     setError(null);
+    setFormError(null);
+    setFormIl("");
+    setFormIlce("");
     setPharmacies([]);
     setPharmacyDistKm({});
     setNearbyExpandedToFullIl(false);
@@ -95,9 +130,27 @@ export default function PharmacyMap() {
     setUserAccuracyM(null);
     setGeoStatus("pending");
     setNearbyBusy(false);
-    setIl("Ankara");
-    setIlce("");
+    setDistricts([]);
   }, []);
+
+  const backFromManualForm = useCallback(() => {
+    setFlow("choose");
+    setFormIl("");
+    setFormIlce("");
+    setFormError(null);
+    setDistricts([]);
+  }, []);
+
+  const submitManualForm = useCallback(() => {
+    if (!formIl.trim()) {
+      setFormError("Lütfen il seçin.");
+      return;
+    }
+    setFormError(null);
+    setIl(formIl.trim());
+    setIlce(formIlce.trim());
+    setFlow("manual");
+  }, [formIl, formIlce]);
 
   const goToNearby = useCallback(() => {
     setFlow("nearby");
@@ -134,11 +187,7 @@ export default function PharmacyMap() {
           setLocating(false);
           if (opts?.focusMap) {
             const m = mapRef.current;
-            if (m) {
-              m.panTo(next);
-              const z = m.getZoom();
-              if (z == null || z < 14) m.setZoom(15);
-            }
+            if (m) fitNearbyMapToUser(m, next);
           }
         },
         () => {
@@ -160,14 +209,18 @@ export default function PharmacyMap() {
     if (userPos) {
       const m = mapRef.current;
       if (m) {
-        m.panTo(userPos);
-        const z = m.getZoom();
-        if (z == null || z < 14) m.setZoom(15);
+        if (flow === "nearby") {
+          fitNearbyMapToUser(m, userPos);
+        } else {
+          m.panTo(userPos);
+          const z = m.getZoom();
+          if (z == null || z < 14) m.setZoom(15);
+        }
       }
       return;
     }
     readLocation({ fresh: true, focusMap: true });
-  }, [userPos, readLocation]);
+  }, [userPos, readLocation, flow]);
 
   const loadDistricts = useCallback(async (city: string) => {
     try {
@@ -200,6 +253,11 @@ export default function PharmacyMap() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (flow !== "manualForm" || !formIl.trim()) return;
+    void loadDistricts(formIl.trim());
+  }, [flow, formIl, loadDistricts]);
 
   useEffect(() => {
     if (flow !== "manual") return;
@@ -350,9 +408,31 @@ export default function PharmacyMap() {
     };
   }, [flow, isLoaded]);
 
-  useEffect(() => {
+  /* Harita kamerası: layout aşamasında uygula; paint sonrası useEffect ile pinlere fit yarışıyordu. */
+  useLayoutEffect(() => {
     if (!map || !isLoaded) return;
-    if (flow === "choose") return;
+    if (flow === "choose" || flow === "manualForm") return;
+
+    /*
+     * Yakın modda userPos yokken aşağıdaki "tüm pinlere fit" dalına düşmek
+     * (liste yüklenmişken) tüm ili Marmara ölçeğinde gösteriyordu — kesinlikle yapma.
+     */
+    if (flow === "nearby") {
+      if (!userPos) {
+        map.panTo(ANKARA_CENTER);
+        map.setZoom(11);
+        return;
+      }
+      /* ~3 km kutu: tek binaya yapışmaz, yakındaki pinler görünür */
+      const focusUser = () => {
+        fitNearbyMapToUser(map, userPos);
+      };
+      focusUser();
+      const idleListener = google.maps.event.addListenerOnce(map, "idle", focusUser);
+      return () => {
+        google.maps.event.removeListener(idleListener);
+      };
+    }
 
     const bounds = new google.maps.LatLngBounds();
     let has = false;
@@ -408,14 +488,6 @@ export default function PharmacyMap() {
     );
   }
 
-  if (!isLoaded) {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-slate-50 text-slate-600">
-        Harita yükleniyor…
-      </div>
-    );
-  }
-
   if (flow === "choose") {
     return (
       <div className="flex min-h-dvh flex-col bg-gradient-to-b from-slate-50 to-white px-4 py-8">
@@ -441,7 +513,7 @@ export default function PharmacyMap() {
           </button>
           <button
             type="button"
-            onClick={goToManual}
+            onClick={goToManualForm}
             className="flex flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-red-200 hover:shadow-md active:scale-[0.99]"
           >
             <span className="text-base font-semibold text-slate-900">
@@ -453,6 +525,91 @@ export default function PharmacyMap() {
             </span>
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (flow === "manualForm") {
+    return (
+      <div className="flex min-h-dvh flex-col bg-gradient-to-b from-slate-50 to-white px-4 py-8">
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-5">
+          <button
+            type="button"
+            onClick={backFromManualForm}
+            className="self-start rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            ← Geri
+          </button>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              İl / ilçe seçin
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              İl zorunludur; ilçe isteğe bağlı. Seçimden sonra harita açılır.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <label className="text-sm font-medium text-slate-800" htmlFor="form-il">
+              İl <span className="text-red-600">*</span>
+            </label>
+            <select
+              id="form-il"
+              value={formIl}
+              onChange={(e) => {
+                setFormIl(e.target.value);
+                setFormIlce("");
+                setFormError(null);
+              }}
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900"
+            >
+              <option value="" disabled>
+                İl seçin
+              </option>
+              {TURKISH_PROVINCES.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+            <label className="text-sm font-medium text-slate-800" htmlFor="form-ilce">
+              İlçe <span className="font-normal text-slate-500">(isteğe bağlı)</span>
+            </label>
+            <select
+              id="form-ilce"
+              value={formIlce}
+              onChange={(e) => setFormIlce(e.target.value)}
+              disabled={!formIl.trim()}
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            >
+              <option value="">Tüm ilçeler</option>
+              {districts.map((d) => (
+                <option key={d.text} value={d.text}>
+                  {d.text}
+                </option>
+              ))}
+            </select>
+          </div>
+          {formError && (
+            <p className="text-sm text-red-600" role="alert">
+              {formError}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={submitManualForm}
+            className="min-h-12 w-full rounded-xl bg-red-600 px-4 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-red-700 active:scale-[0.99]"
+          >
+            Haritada göster
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-slate-50 text-slate-600">
+        Harita yükleniyor…
       </div>
     );
   }
@@ -563,11 +720,16 @@ export default function PharmacyMap() {
                 {geoStatus === "ok" && (
                   <>
                     Mavi nokta sizsiniz
+                    <br />
+                    <span className="text-slate-400">
+                      Mavi halka ≈{NEARBY_MAP_FOCUS_RADIUS_KM} km (görsel). Liste
+                      ~{NEARBY_RADIUS_KM} km
+                    </span>
                     {userAccuracyM != null && userAccuracyM > 0 && (
                       <>
                         <br />
                         <span className="text-slate-400">
-                          ±~{Math.round(userAccuracyM)} m
+                          GPS belirsizliği: ±~{Math.round(userAccuracyM)} m
                         </span>
                       </>
                     )}
@@ -612,7 +774,11 @@ export default function PharmacyMap() {
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
           center={center}
-          zoom={12}
+          {...(flow === "nearby"
+            ? {}
+            : {
+                zoom: 12,
+              })}
           options={defaultMapOptions}
           onLoad={(m) => {
             mapRef.current = m;
@@ -620,24 +786,21 @@ export default function PharmacyMap() {
           }}
           onClick={() => setSelected(null)}
         >
-          {flow === "nearby" &&
-            userPos &&
-            userAccuracyM != null &&
-            userAccuracyM > 0 && (
-              <Circle
-                center={userPos}
-                radius={Math.max(userAccuracyM, 30)}
-                options={{
-                  strokeColor: "#4285F4",
-                  strokeOpacity: 0.45,
-                  strokeWeight: 1,
-                  fillColor: "#4285F4",
-                  fillOpacity: 0.1,
-                  clickable: false,
-                  zIndex: 1,
-                }}
-              />
-            )}
+          {flow === "nearby" && userPos && (
+            <Circle
+              center={userPos}
+              radius={NEARBY_MAP_CIRCLE_RADIUS_M}
+              options={{
+                strokeColor: "#4285F4",
+                strokeOpacity: 0.4,
+                strokeWeight: 1,
+                fillColor: "#4285F4",
+                fillOpacity: 0.08,
+                clickable: false,
+                zIndex: 1,
+              }}
+            />
+          )}
           {flow === "nearby" && userPos && (
             <Marker position={userPos} icon={userIcon} zIndex={999} />
           )}
