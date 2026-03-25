@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { createAnonClient } from "@/lib/supabase/anon";
+import { fetchNobeteczaDuty } from "@/lib/nobetecza";
 
-const UPSTREAM = "https://api.collectapi.com/health/districtList";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function supabaseReadConfigured() {
   return Boolean(
@@ -49,47 +51,48 @@ async function fetchDistrictsFromSupabase(il: string) {
   );
 }
 
-async function fetchDistrictsFromCollect(il: string) {
-  const key = process.env.COLLECT_API_KEY;
+async function fetchDistrictsFromNobetecza(il: string) {
+  const key = process.env.NOBETECZA_API_KEY?.trim();
   if (!key) {
     return NextResponse.json(
-      { error: "COLLECT_API_KEY tanımlı değil" },
+      { error: "NOBETECZA_API_KEY tanımlı değil", success: false },
       { status: 500 }
     );
   }
 
-  const url = new URL(UPSTREAM);
-  url.searchParams.set("il", il);
-
-  const upstream = await fetch(url.toString(), {
-    headers: {
-      authorization: `apikey ${key}`,
-      "content-type": "application/json",
-    },
-    next: { revalidate: 86400 },
-  });
-
-  const body = (await upstream.json()) as {
-    success?: boolean;
-    result?: unknown;
-    message?: string;
-  };
-
-  if (!upstream.ok || body.success === false) {
+  const body = await fetchNobeteczaDuty(key, il);
+  if (!body.success) {
     return NextResponse.json(
       {
-        error: body.message || "İlçe listesi alınamadı",
         success: false,
+        error: body.message || "İlçe listesi alınamadı",
       },
-      { status: upstream.ok ? 502 : upstream.status }
+      { status: 502 }
     );
   }
 
+  const seen = new Set<string>();
+  const list: { text: string; pharmacy_number: string }[] = [];
+
+  for (const row of body.data ?? []) {
+    const t = (row.ilce ?? "").trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    list.push({ text: t, pharmacy_number: "" });
+  }
+
+  list.sort((a, b) => a.text.localeCompare(b.text, "tr"));
+
   return NextResponse.json(
-    { success: true, result: body.result ?? [], source: "collectapi" },
+    {
+      success: true,
+      result: list,
+      source: "nobetecza",
+      dutyDate: typeof body.tarih === "string" ? body.tarih : null,
+    },
     {
       headers: {
-        "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+        "Cache-Control": "private, no-store",
       },
     }
   );
@@ -115,5 +118,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return fetchDistrictsFromCollect(il);
+  try {
+    return await fetchDistrictsFromNobetecza(il);
+  } catch (e) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: e instanceof Error ? e.message : "İstek başarısız",
+      },
+      { status: 500 }
+    );
+  }
 }

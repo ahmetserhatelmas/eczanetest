@@ -1,4 +1,4 @@
-/** Türkiye illeri — CollectAPI `il` parametresi ile uyumlu yazım. */
+/** Türkiye illeri — arayüz seçimi (nobetecza slug’a dönüştürülür). */
 export const TURKISH_PROVINCES: string[] = [
   "Adana",
   "Adıyaman",

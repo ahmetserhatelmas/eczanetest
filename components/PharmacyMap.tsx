@@ -18,6 +18,7 @@ import {
 import {
   boundsCornersForRadiusKm,
   distanceKm,
+  dutyPharmacyListSuspiciousSpread,
   NEARBY_MAP_CIRCLE_RADIUS_M,
   NEARBY_MAP_FOCUS_RADIUS_KM,
   NEARBY_RADIUS_KM,
@@ -126,6 +127,18 @@ export default function PharmacyMap() {
 
   const center = useMemo(() => userPos ?? ANKARA_CENTER, [userPos]);
 
+  /** Haritada pin çıkarılabilen kayıt (geçerli `loc`); liste sayısı bundan fazla olabilir. */
+  const mappablePharmacyCount = useMemo(
+    () => pharmacies.reduce((n, p) => n + (parseLoc(p.loc) ? 1 : 0), 0),
+    [pharmacies]
+  );
+
+  /** Bazı sağlayıcı hatalarında pinler tek il yerine çok geniş alana yayılır. */
+  const suspiciousProvinceSpread = useMemo(() => {
+    if (flow !== "manual" || loading || pharmacies.length === 0) return false;
+    return dutyPharmacyListSuspiciousSpread(pharmacies).suspicious;
+  }, [flow, loading, pharmacies]);
+
   const resetToChoose = useCallback(() => {
     setFlow("choose");
     setPharmacies([]);
@@ -190,6 +203,11 @@ export default function PharmacyMap() {
     setFlow("manual");
   }, [formIl, formIlce]);
 
+  /**
+   * Mobil Safari/Chrome: konum izni genelde yalnızca kullanıcı tıklamasıyla başlayan
+   * getCurrentPosition çağrısında sorulur. Bu yüzden istek choose ekranındaki tıklamada
+   * veya “Tekrar dene” butonunda başlatılmalı; useEffect içinde çağırmak izni susturabilir.
+   */
   const goToNearby = useCallback(() => {
     setFlow("nearby");
     setError(null);
@@ -204,6 +222,42 @@ export default function PharmacyMap() {
     setListDutyDate(null);
     setListSource(null);
     setListLastSynced(null);
+    setNearbyBusy(true);
+
+    if (!navigator.geolocation) {
+      setGeoStatus("unavailable");
+      setError("Tarayıcı konum desteklemiyor.");
+      setNearbyBusy(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const next = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        setUserPos(next);
+        const acc = pos.coords.accuracy;
+        setUserAccuracyM(
+          typeof acc === "number" && Number.isFinite(acc) ? acc : null
+        );
+        setGeoStatus("ok");
+      },
+      () => {
+        setGeoStatus("denied");
+        setUserAccuracyM(null);
+        setNearbyBusy(false);
+        setError(
+          "Konum izni olmadan yakın eczaneler gösterilemez. «Konumu tekrar iste»ye basın veya tarayıcı / site ayarlarından konuma izin verin."
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 0,
+      }
+    );
   }, []);
 
   const readLocation = useCallback(
@@ -212,6 +266,8 @@ export default function PharmacyMap() {
         setGeoStatus("unavailable");
         return;
       }
+      setError(null);
+      setGeoStatus("pending");
       setLocating(true);
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -235,6 +291,9 @@ export default function PharmacyMap() {
           setGeoStatus("denied");
           setUserAccuracyM(null);
           setLocating(false);
+          setError(
+            "Konum alınamadı. İzin verdiyseniz «Konumu tekrar iste»ye basın."
+          );
         },
         {
           enableHighAccuracy: true,
@@ -320,12 +379,14 @@ export default function PharmacyMap() {
     void loadPharmacies(il, ilce);
   }, [il, ilce, flow, loadPharmacies]);
 
+  /** Konum tıklamada alındı; harita yüklendikten sonra adres + liste. */
   useEffect(() => {
-    if (flow !== "nearby" || !isLoaded) return;
+    if (flow !== "nearby" || !isLoaded || !userPos) return;
+    const u = userPos;
 
     let cancelled = false;
 
-    async function runNearby() {
+    async function runNearbyFromPosition() {
       setNearbyBusy(true);
       setError(null);
       setPharmacies([]);
@@ -336,41 +397,6 @@ export default function PharmacyMap() {
       setListDutyDate(null);
       setListSource(null);
       setListLastSynced(null);
-
-      if (!navigator.geolocation) {
-        setGeoStatus("unavailable");
-        setError("Tarayıcı konum desteklemiyor.");
-        setNearbyBusy(false);
-        return;
-      }
-
-      const pos = await new Promise<GeolocationPosition | null>((resolve) => {
-        navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
-          enableHighAccuracy: true,
-          timeout: 20000,
-          maximumAge: 0,
-        });
-      });
-
-      if (cancelled) return;
-
-      if (!pos) {
-        setGeoStatus("denied");
-        setError("Konum izni olmadan yakın eczaneler gösterilemez.");
-        setNearbyBusy(false);
-        return;
-      }
-
-      const u = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-      };
-      setUserPos(u);
-      const acc = pos.coords.accuracy;
-      setUserAccuracyM(
-        typeof acc === "number" && Number.isFinite(acc) ? acc : null
-      );
-      setGeoStatus("ok");
 
       const geocoder = new google.maps.Geocoder();
       const geo = await new Promise<{
@@ -467,12 +493,12 @@ export default function PharmacyMap() {
       }
     }
 
-    void runNearby();
+    void runNearbyFromPosition();
 
     return () => {
       cancelled = true;
     };
-  }, [flow, isLoaded]);
+  }, [flow, isLoaded, userPos]);
 
   /* Harita kamerası: layout aşamasında uygula; paint sonrası useEffect ile pinlere fit yarışıyordu. */
   useLayoutEffect(() => {
@@ -573,8 +599,9 @@ export default function PharmacyMap() {
               Konumuma yakın olanları bul
             </span>
             <span className="text-sm leading-snug text-slate-600">
-              Konumunuz kullanılır; yaklaşık {NEARBY_RADIUS_KM} km içindeki
-              nöbetçi eczaneler haritada gösterilir.
+              Bu düğmeye bastığınızda tarayıcı konum izni ister (telefonda özellikle
+              önemli). Yaklaşık {NEARBY_RADIUS_KM} km içindeki nöbetçi eczaneler
+              haritada gösterilir.
             </span>
           </button>
           <button
@@ -772,7 +799,12 @@ export default function PharmacyMap() {
               <span>
                 {loading
                   ? "Güncelleniyor…"
-                  : `${pharmacies.length} nöbetçi eczane`}
+                  : `${pharmacies.length} nöbetçi eczane${
+                      pharmacies.length > 0 &&
+                      mappablePharmacyCount !== pharmacies.length
+                        ? ` · ${mappablePharmacyCount} haritada (${pharmacies.length - mappablePharmacyCount} kayıtta konum yok)`
+                        : ""
+                    }`}
               </span>
             )}
             <span className="text-[11px] leading-snug text-slate-400">
@@ -784,21 +816,27 @@ export default function PharmacyMap() {
                 <span className="mt-0.5 block">
                   Kaynak:{" "}
                   <span className="font-medium text-slate-500">
-                    {listSource === "supabase" ? "Supabase" : listSource}
+                    {listSource === "nobetecza"
+                      ? "nobetecza.com (doğrudan API)"
+                      : listSource === "supabase"
+                        ? "nobetecza.com (günlük güncellenen liste)"
+                        : listSource}
                   </span>
                   {listLastSynced && (
                     <>
                       {" "}
-                      · Bu il kayıtlarının son yazımı (İstanbul):{" "}
+                      · {detectedIl ?? il} — son yazım:{" "}
                       {formatIstanbulTs(listLastSynced)}
                     </>
                   )}
                 </span>
               )}
               <span className="mt-0.5 block text-slate-400">
-                CollectAPI akşam nöbetini gün içinde güncelleyebilir; canlıda
-                sabah ve ~19:30 (İstanbul) ikinci senkron tetiklenir. Liste
-                eskiyse cron/curl ile tam senkron çalıştırın.
+                {listSource === "supabase"
+                  ? "Günlük nöbetçi listesi; veri günde bir kez yenilenir, tarih yukarıda."
+                  : listSource === "nobetecza"
+                    ? "Veri her istekte nobetecza.com API’den gelir. Kotayı panelden takip edin."
+                    : "Veri kaynağı yukarıda belirtilir."}
               </span>
             </span>
           </div>
@@ -848,6 +886,25 @@ export default function PharmacyMap() {
         {error && (
           <p className="text-sm text-red-600" role="alert">
             {error}
+          </p>
+        )}
+        {flow === "nearby" && geoStatus === "denied" && !nearbyBusy && (
+          <button
+            type="button"
+            disabled={locating}
+            onClick={() => readLocation({ fresh: true, focusMap: true })}
+            className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-900 shadow-sm transition hover:bg-red-100 disabled:opacity-60"
+          >
+            {locating ? "İzin isteniyor…" : "Konumu tekrar iste"}
+          </button>
+        )}
+        {suspiciousProvinceSpread && (
+          <p
+            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-950"
+            role="status"
+          >
+            Bu il için gelen konumlar çok geniş bir alana yayılıyor; kaynak veri hatalı
+            veya karışık olabilir. Resmi eczacı odası listesiyle doğrulayın.
           </p>
         )}
       </header>

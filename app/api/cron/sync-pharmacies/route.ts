@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { syncDutyPharmacies } from "@/lib/sync-duty-pharmacies";
+import { syncDutyPharmaciesFromNobetecza } from "@/lib/sync-duty-nobetecza";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -9,8 +9,16 @@ function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
+export async function GET(req: NextRequest) {
+  return handle(req);
+}
+
+export async function POST(req: NextRequest) {
+  return handle(req);
+}
+
 async function handle(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
+  const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
     return NextResponse.json(
       { error: "CRON_SECRET tanımlı değil" },
@@ -23,10 +31,10 @@ async function handle(req: NextRequest) {
     return unauthorized();
   }
 
-  const collectKey = process.env.COLLECT_API_KEY;
-  if (!collectKey) {
+  const apiKey = process.env.NOBETECZA_API_KEY?.trim();
+  if (!apiKey) {
     return NextResponse.json(
-      { error: "COLLECT_API_KEY tanımlı değil" },
+      { error: "NOBETECZA_API_KEY tanımlı değil" },
       { status: 500 }
     );
   }
@@ -38,41 +46,20 @@ async function handle(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          e instanceof Error ? e.message : "Supabase admin istemcisi oluşturulamadı",
+          e instanceof Error ? e.message : "Supabase admin oluşturulamadı",
       },
       { status: 500 }
     );
   }
 
-  const rawDate = req.nextUrl.searchParams.get("dutyDate")?.trim();
-  let dutyDateParam: string | undefined;
-  if (rawDate) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-      return NextResponse.json(
-        { error: "dutyDate=YYYY-MM-DD olmalı (örn. 2026-03-27)" },
-        { status: 400 }
-      );
-    }
-    dutyDateParam = rawDate;
-  }
-
-  const summary = await syncDutyPharmacies({
-    collectApiKey: collectKey,
+  const summary = await syncDutyPharmaciesFromNobetecza({
+    apiKey,
     supabase,
-    dutyDate: dutyDateParam,
   });
 
   return NextResponse.json({
     success: summary.provincesFailed === 0,
+    source: "nobetecza→supabase",
     ...summary,
   });
-}
-
-/** Vercel Cron GET gönderir; manuel tetikleme için POST da kabul edilir. */
-export async function GET(req: NextRequest) {
-  return handle(req);
-}
-
-export async function POST(req: NextRequest) {
-  return handle(req);
 }

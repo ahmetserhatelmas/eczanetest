@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { createAnonClient } from "@/lib/supabase/anon";
+import {
+  fetchNobeteczaDuty,
+  nobeteczaItemToDutyPharmacy,
+} from "@/lib/nobetecza";
 
-/** Gün değişince edge önbellekte dünün listesi kalmasın. */
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const UPSTREAM = "https://api.collectapi.com/health/dutyPharmacy";
 
 const noCacheHeaders = {
   "Cache-Control": "private, no-store",
@@ -49,13 +50,24 @@ async function fetchFromSupabase(il: string, ilce: string) {
     if (!lastSyncedAt || t > lastSyncedAt) lastSyncedAt = t;
   }
 
-  const result = rows.map((row) => ({
-    name: row.name,
-    dist: row.ilce ?? "",
-    address: row.address ?? "",
-    phone: row.phone ?? "",
-    loc: `${row.lat},${row.lng}`,
-  }));
+  const result = rows.map((row) => {
+    const lat = row.lat;
+    const lng = row.lng;
+    const loc =
+      typeof lat === "number" &&
+      typeof lng === "number" &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+        ? `${lat},${lng}`
+        : "";
+    return {
+      name: row.name,
+      dist: row.ilce ?? "",
+      address: row.address ?? "",
+      phone: row.phone ?? "",
+      loc,
+    };
+  });
 
   return NextResponse.json(
     {
@@ -69,52 +81,35 @@ async function fetchFromSupabase(il: string, ilce: string) {
   );
 }
 
-async function fetchFromCollectApi(il: string, ilce: string) {
-  const key = process.env.COLLECT_API_KEY;
+async function fetchFromNobeteczaDirect(il: string, ilce: string) {
+  const key = process.env.NOBETECZA_API_KEY?.trim();
   if (!key) {
     return NextResponse.json(
-      { error: "COLLECT_API_KEY tanımlı değil" },
+      { error: "NOBETECZA_API_KEY tanımlı değil", success: false },
       { status: 500 }
     );
   }
 
-  const dutyDate = dutyListDateIstanbul();
-  const url = new URL(UPSTREAM);
-  url.searchParams.set("il", il);
-  if (ilce) url.searchParams.set("ilce", ilce);
-  /* CollectAPI: farklı `date` değerleri birebir aynı JSON — gün seçilmiyor, tek snapshot. */
-  url.searchParams.set("date", dutyDate);
-
-  const upstream = await fetch(url.toString(), {
-    headers: {
-      authorization: `apikey ${key}`,
-      "content-type": "application/json",
-    },
-    cache: "no-store",
-  });
-
-  const body = (await upstream.json()) as {
-    success?: boolean;
-    result?: unknown;
-    message?: string;
-  };
-
-  if (!upstream.ok || body.success === false) {
+  const body = await fetchNobeteczaDuty(key, il, ilce || undefined);
+  if (!body.success) {
     return NextResponse.json(
       {
-        error: body.message || "Eczane verisi alınamadı",
         success: false,
+        error: body.message || "Eczane verisi alınamadı",
       },
-      { status: upstream.ok ? 502 : upstream.status }
+      { status: 502 }
     );
   }
+
+  const result = (body.data ?? []).map(nobeteczaItemToDutyPharmacy);
 
   return NextResponse.json(
     {
       success: true,
-      result: body.result ?? [],
-      source: "collectapi",
-      dutyDate,
+      result,
+      source: "nobetecza",
+      dutyDate: typeof body.tarih === "string" ? body.tarih : null,
+      lastSyncedAt: null,
     },
     { headers: noCacheHeaders }
   );
@@ -142,5 +137,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return fetchFromCollectApi(il, ilce);
+  try {
+    return await fetchFromNobeteczaDirect(il, ilce);
+  } catch (e) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: e instanceof Error ? e.message : "İstek başarısız",
+      },
+      { status: 500 }
+    );
+  }
 }

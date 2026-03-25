@@ -15,7 +15,7 @@ function dutyHandoverHourTrt(): number {
 }
 
 /**
- * Supabase / CollectAPI için nöbet **liste günü** (İstanbul).
+ * İstemci önbellek kırma (`dutyDay` query) için nöbet **liste günü** (İstanbul).
  * Resmi yayınlar genelde nöbetin başladığı güne göredir: “25 Mart 19:00 – 26 Mart sabahı” → **25 Mart**.
  * 00:00–08:00 (TRT, varsayılan) arası hâlâ bir önceki gecenin nöbeti sayılır → liste günü bir gün geri.
  */

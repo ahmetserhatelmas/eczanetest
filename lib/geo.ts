@@ -28,6 +28,57 @@ export const NEARBY_MAP_CIRCLE_RADIUS_M = NEARBY_MAP_FOCUS_RADIUS_KM * 1000;
 export type LatLng = { lat: number; lng: number };
 
 /**
+ * Tek il seçiliyken, tüm pinlerin enlem/boylam yayılımı bu dereceden büyükse
+ * (ör. hatalı kaynak verisinde) liste güvenilir değildir.
+ * Türkiye’de en büyük illerin tipik kutusu ~2–3°; ülke geneli karışımı çok daha geniştir.
+ */
+export const PROVINCE_COORD_SPAN_SUSPICIOUS_DEG = 3.6;
+
+/**
+ * Yayılım anlamlı olsun diye en az bu kadar geçerli koordinat gerekir.
+ */
+export const PROVINCE_SPAN_MIN_POINTS = 10;
+
+export type ProvinceSpanCheck = {
+  suspicious: boolean;
+  latSpan: number;
+  lngSpan: number;
+  points: number;
+};
+
+/** `loc` alanı "lat,lng" olan eczane satırları için enlem/boylam kutusu şüpheli mi? */
+export function dutyPharmacyListSuspiciousSpread(
+  rows: { loc: string }[]
+): ProvinceSpanCheck {
+  const pts: LatLng[] = [];
+  for (const row of rows) {
+    const parts = row.loc.split(",").map((s) => Number.parseFloat(s.trim()));
+    if (
+      parts.length >= 2 &&
+      Number.isFinite(parts[0]) &&
+      Number.isFinite(parts[1])
+    ) {
+      pts.push({ lat: parts[0], lng: parts[1] });
+    }
+  }
+  if (pts.length < PROVINCE_SPAN_MIN_POINTS) {
+    return {
+      suspicious: false,
+      latSpan: 0,
+      lngSpan: 0,
+      points: pts.length,
+    };
+  }
+  const lats = pts.map((p) => p.lat);
+  const lngs = pts.map((p) => p.lng);
+  const latSpan = Math.max(...lats) - Math.min(...lats);
+  const lngSpan = Math.max(...lngs) - Math.min(...lngs);
+  const maxSpan = Math.max(latSpan, lngSpan);
+  const suspicious = maxSpan > PROVINCE_COORD_SPAN_SUSPICIOUS_DEG;
+  return { suspicious, latSpan, lngSpan, points: pts.length };
+}
+
+/**
  * Merkez + km yarıçapı için harita fitBounds (dikdörtgen köşeler).
  * Enlem boyunca ~111 km/°; boylam enleme göre ölçeklenir.
  */
