@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/sync-pharmacies",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/sync-pharmacies",
+      "schedule": "30 16 * * *"
     }
   ]
 }

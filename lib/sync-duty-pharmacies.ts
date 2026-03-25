@@ -1,6 +1,6 @@
 import { parseLoc } from "@/lib/pharmacy";
 import { TURKISH_PROVINCES } from "@/lib/provinces";
-import { dutyDateIstanbul } from "@/lib/duty-date";
+import { dutyListDateIstanbul } from "@/lib/duty-date";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type CollectItem = {
@@ -60,12 +60,18 @@ function looksLikeRateLimit(text: string, status: number) {
   return t.includes("rate limit") || t.includes("too many requests");
 }
 
+/**
+ * CollectAPI’ye `date` eklenir (dokümanda yok). Saha testi: `date=2025-03-25` vs `26` vs `27`
+ * yanıtı birebir aynı — parametre gün seçmiyor; sadece bizim `duty_date` ile eşleme için gönderiliyor.
+ */
 async function fetchDutyPharmacyProvince(
   il: string,
-  collectApiKey: string
+  collectApiKey: string,
+  dutyDate: string
 ): Promise<CollectItem[]> {
   const url = new URL(COLLECT_URL);
   url.searchParams.set("il", il);
+  url.searchParams.set("date", dutyDate);
   const headers = {
     authorization: `apikey ${collectApiKey}`,
     "content-type": "application/json",
@@ -110,14 +116,20 @@ async function fetchDutyPharmacyProvince(
   throw new Error(lastErr);
 }
 
+const DUTY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export async function syncDutyPharmacies(opts: {
   collectApiKey: string;
   supabase: SupabaseClient;
   /** İller arası bekleme; CollectAPI dakika bazlı limit için yüksek tutun (ör. 800+). */
   delayMs?: number;
+  /** `YYYY-MM-DD` — CollectAPI `date=` ve `duty_date`; yoksa aktif liste günü (`dutyListDateIstanbul`). */
+  dutyDate?: string;
 }): Promise<SyncSummary> {
   const start = Date.now();
-  const dutyDate = dutyDateIstanbul();
+  const fromOpt = opts.dutyDate?.trim();
+  const dutyDate =
+    fromOpt && DUTY_DATE_RE.test(fromOpt) ? fromOpt : dutyListDateIstanbul();
   const envDelay = Number(process.env.SYNC_DELAY_MS);
   const defaultDelay = Number.isFinite(envDelay) && envDelay >= 0 ? envDelay : 850;
   const { collectApiKey, supabase, delayMs = defaultDelay } = opts;
@@ -126,9 +138,12 @@ export async function syncDutyPharmacies(opts: {
   let provincesFailed = 0;
   let rowsInserted = 0;
 
-  for (const il of TURKISH_PROVINCES) {
+  const total = TURKISH_PROVINCES.length;
+  for (let i = 0; i < total; i++) {
+    const il = TURKISH_PROVINCES[i];
+    console.log(`[duty-sync] ${i + 1}/${total} ${il} (${dutyDate})…`);
     try {
-      const items = await fetchDutyPharmacyProvince(il, collectApiKey);
+      const items = await fetchDutyPharmacyProvince(il, collectApiKey, dutyDate);
 
       const { error: delErr } = await supabase
         .from("duty_pharmacies")
@@ -163,8 +178,10 @@ export async function syncDutyPharmacies(opts: {
       }
 
       provincesOk++;
+      console.log(`[duty-sync] ${il} tamam (${rows.length} satır)`);
     } catch (e) {
       provincesFailed++;
+      console.warn(`[duty-sync] ${il} hata:`, formatSyncError(e));
       errors.push({
         il,
         message: formatSyncError(e),

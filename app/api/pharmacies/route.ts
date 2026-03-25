@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dutyDateIstanbul } from "@/lib/duty-date";
+import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { createAnonClient } from "@/lib/supabase/anon";
 
+/** Gün değişince edge önbellekte dünün listesi kalmasın. */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const UPSTREAM = "https://api.collectapi.com/health/dutyPharmacy";
+
+const noCacheHeaders = {
+  "Cache-Control": "private, no-store",
+} as const;
 
 function supabaseReadConfigured() {
   return Boolean(
@@ -12,11 +20,11 @@ function supabaseReadConfigured() {
 
 async function fetchFromSupabase(il: string, ilce: string) {
   const supabase = createAnonClient();
-  const dutyDate = dutyDateIstanbul();
+  const dutyDate = dutyListDateIstanbul();
 
   let q = supabase
     .from("duty_pharmacies")
-    .select("name, ilce, address, phone, lat, lng")
+    .select("name, ilce, address, phone, lat, lng, synced_at")
     .eq("duty_date", dutyDate)
     .eq("il", il);
 
@@ -33,7 +41,15 @@ async function fetchFromSupabase(il: string, ilce: string) {
     );
   }
 
-  const result = (data ?? []).map((row) => ({
+  const rows = data ?? [];
+  let lastSyncedAt: string | null = null;
+  for (const row of rows) {
+    const t = row.synced_at;
+    if (typeof t !== "string") continue;
+    if (!lastSyncedAt || t > lastSyncedAt) lastSyncedAt = t;
+  }
+
+  const result = rows.map((row) => ({
     name: row.name,
     dist: row.ilce ?? "",
     address: row.address ?? "",
@@ -42,12 +58,14 @@ async function fetchFromSupabase(il: string, ilce: string) {
   }));
 
   return NextResponse.json(
-    { success: true, result, source: "supabase", dutyDate },
     {
-      headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-      },
-    }
+      success: true,
+      result,
+      source: "supabase",
+      dutyDate,
+      lastSyncedAt,
+    },
+    { headers: noCacheHeaders }
   );
 }
 
@@ -60,16 +78,19 @@ async function fetchFromCollectApi(il: string, ilce: string) {
     );
   }
 
+  const dutyDate = dutyListDateIstanbul();
   const url = new URL(UPSTREAM);
   url.searchParams.set("il", il);
   if (ilce) url.searchParams.set("ilce", ilce);
+  /* CollectAPI: farklı `date` değerleri birebir aynı JSON — gün seçilmiyor, tek snapshot. */
+  url.searchParams.set("date", dutyDate);
 
   const upstream = await fetch(url.toString(), {
     headers: {
       authorization: `apikey ${key}`,
       "content-type": "application/json",
     },
-    next: { revalidate: 3600 },
+    cache: "no-store",
   });
 
   const body = (await upstream.json()) as {
@@ -89,12 +110,13 @@ async function fetchFromCollectApi(il: string, ilce: string) {
   }
 
   return NextResponse.json(
-    { success: true, result: body.result ?? [], source: "collectapi" },
     {
-      headers: {
-        "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-      },
-    }
+      success: true,
+      result: body.result ?? [],
+      source: "collectapi",
+      dutyDate,
+    },
+    { headers: noCacheHeaders }
   );
 }
 

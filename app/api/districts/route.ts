@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dutyDateIstanbul } from "@/lib/duty-date";
+import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { createAnonClient } from "@/lib/supabase/anon";
 
 const UPSTREAM = "https://api.collectapi.com/health/districtList";
@@ -12,7 +12,7 @@ function supabaseReadConfigured() {
 
 async function fetchDistrictsFromSupabase(il: string) {
   const supabase = createAnonClient();
-  const dutyDate = dutyDateIstanbul();
+  const dutyDate = dutyListDateIstanbul();
 
   const { data, error } = await supabase
     .from("duty_pharmacies")

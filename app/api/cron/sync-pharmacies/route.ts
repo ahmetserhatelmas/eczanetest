@@ -44,9 +44,22 @@ async function handle(req: NextRequest) {
     );
   }
 
+  const rawDate = req.nextUrl.searchParams.get("dutyDate")?.trim();
+  let dutyDateParam: string | undefined;
+  if (rawDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      return NextResponse.json(
+        { error: "dutyDate=YYYY-MM-DD olmalı (örn. 2026-03-27)" },
+        { status: 400 }
+      );
+    }
+    dutyDateParam = rawDate;
+  }
+
   const summary = await syncDutyPharmacies({
     collectApiKey: collectKey,
     supabase,
+    dutyDate: dutyDateParam,
   });
 
   return NextResponse.json({

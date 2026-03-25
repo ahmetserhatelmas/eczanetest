@@ -22,6 +22,7 @@ import {
   NEARBY_MAP_FOCUS_RADIUS_KM,
   NEARBY_RADIUS_KM,
 } from "@/lib/geo";
+import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { matchTurkishProvince } from "@/lib/match-turkish-province";
 import { parseLoc, type DutyPharmacy } from "@/lib/pharmacy";
 import { TURKISH_PROVINCES } from "@/lib/provinces";
@@ -53,6 +54,34 @@ function fitNearbyMapToUser(
 
 function distKey(p: DutyPharmacy) {
   return `${p.name}|${p.loc}`;
+}
+
+/** Tarayıcı / proxy önbelleğini kırmak için İstanbul nöbet günü query’de (API yalnızca il/ilçe okur). */
+function pharmaciesRequestUrl(il: string, ilce: string) {
+  const params = new URLSearchParams({ il });
+  if (ilce) params.set("ilce", ilce);
+  params.set("dutyDay", dutyListDateIstanbul());
+  return `/api/pharmacies?${params}`;
+}
+
+type PharmaciesApiJson = {
+  result?: DutyPharmacy[];
+  dutyDate?: string;
+  source?: string;
+  lastSyncedAt?: string | null;
+  error?: string;
+};
+
+function formatIstanbulTs(iso: string) {
+  try {
+    return new Date(iso).toLocaleString("tr-TR", {
+      timeZone: "Europe/Istanbul",
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 export default function PharmacyMap() {
@@ -91,6 +120,9 @@ export default function PharmacyMap() {
   const [formIl, setFormIl] = useState("");
   const [formIlce, setFormIlce] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [listDutyDate, setListDutyDate] = useState<string | null>(null);
+  const [listSource, setListSource] = useState<string | null>(null);
+  const [listLastSynced, setListLastSynced] = useState<string | null>(null);
 
   const center = useMemo(() => userPos ?? ANKARA_CENTER, [userPos]);
 
@@ -113,6 +145,9 @@ export default function PharmacyMap() {
     setFormIlce("");
     setFormError(null);
     setDistricts([]);
+    setListDutyDate(null);
+    setListSource(null);
+    setListLastSynced(null);
   }, []);
 
   const goToManualForm = useCallback(() => {
@@ -131,6 +166,9 @@ export default function PharmacyMap() {
     setGeoStatus("pending");
     setNearbyBusy(false);
     setDistricts([]);
+    setListDutyDate(null);
+    setListSource(null);
+    setListLastSynced(null);
   }, []);
 
   const backFromManualForm = useCallback(() => {
@@ -163,6 +201,9 @@ export default function PharmacyMap() {
     setUserPos(null);
     setUserAccuracyM(null);
     setGeoStatus("pending");
+    setListDutyDate(null);
+    setListSource(null);
+    setListLastSynced(null);
   }, []);
 
   const readLocation = useCallback(
@@ -240,14 +281,24 @@ export default function PharmacyMap() {
     setPharmacyDistKm({});
     setNearbyExpandedToFullIl(false);
     try {
-      const params = new URLSearchParams({ il: city });
-      if (district) params.set("ilce", district);
-      const r = await fetch(`/api/pharmacies?${params}`);
-      const data = await r.json();
+      const r = await fetch(pharmaciesRequestUrl(city, district), {
+        cache: "no-store",
+      });
+      const data = (await r.json()) as PharmaciesApiJson;
       if (!r.ok) throw new Error(data.error || "Liste alınamadı");
-      setPharmacies((data.result as DutyPharmacy[]) || []);
+      setPharmacies(data.result ?? []);
+      setListDutyDate(
+        typeof data.dutyDate === "string" ? data.dutyDate : null
+      );
+      setListSource(typeof data.source === "string" ? data.source : null);
+      setListLastSynced(
+        typeof data.lastSyncedAt === "string" ? data.lastSyncedAt : null
+      );
     } catch (e) {
       setPharmacies([]);
+      setListDutyDate(null);
+      setListSource(null);
+      setListLastSynced(null);
       setError(e instanceof Error ? e.message : "Hata");
     } finally {
       setLoading(false);
@@ -282,6 +333,9 @@ export default function PharmacyMap() {
       setNearbyExpandedToFullIl(false);
       setSelected(null);
       setDetectedIl(null);
+      setListDutyDate(null);
+      setListSource(null);
+      setListLastSynced(null);
 
       if (!navigator.geolocation) {
         setGeoStatus("unavailable");
@@ -356,12 +410,21 @@ export default function PharmacyMap() {
       setIl(matched);
 
       try {
-        const r = await fetch(
-          `/api/pharmacies?il=${encodeURIComponent(matched)}`
-        );
-        const data = await r.json();
+        const r = await fetch(pharmaciesRequestUrl(matched, ""), {
+          cache: "no-store",
+        });
+        const data = (await r.json()) as PharmaciesApiJson;
         if (!r.ok) throw new Error(data.error || "Liste alınamadı");
-        const all = (data.result as DutyPharmacy[]) ?? [];
+        const all = data.result ?? [];
+        if (!cancelled) {
+          setListDutyDate(
+            typeof data.dutyDate === "string" ? data.dutyDate : null
+          );
+          setListSource(typeof data.source === "string" ? data.source : null);
+          setListLastSynced(
+            typeof data.lastSyncedAt === "string" ? data.lastSyncedAt : null
+          );
+        }
 
         if (cancelled) return;
 
@@ -394,6 +457,9 @@ export default function PharmacyMap() {
         setNearbyExpandedToFullIl(expanded);
       } catch (e) {
         if (!cancelled) {
+          setListDutyDate(null);
+          setListSource(null);
+          setListLastSynced(null);
           setError(e instanceof Error ? e.message : "Hata");
         }
       } finally {
@@ -710,7 +776,30 @@ export default function PharmacyMap() {
               </span>
             )}
             <span className="text-[11px] leading-snug text-slate-400">
-              Günlük nöbetçi listesi (Supabase / bugünün tarihi).
+              Günlük liste · nöbet liste günü (bu gece–yarın sabah):{" "}
+              <span className="font-medium text-slate-500">
+                {listDutyDate ?? "—"}
+              </span>
+              {listSource && (
+                <span className="mt-0.5 block">
+                  Kaynak:{" "}
+                  <span className="font-medium text-slate-500">
+                    {listSource === "supabase" ? "Supabase" : listSource}
+                  </span>
+                  {listLastSynced && (
+                    <>
+                      {" "}
+                      · Bu il kayıtlarının son yazımı (İstanbul):{" "}
+                      {formatIstanbulTs(listLastSynced)}
+                    </>
+                  )}
+                </span>
+              )}
+              <span className="mt-0.5 block text-slate-400">
+                CollectAPI akşam nöbetini gün içinde güncelleyebilir; canlıda
+                sabah ve ~19:30 (İstanbul) ikinci senkron tetiklenir. Liste
+                eskiyse cron/curl ile tam senkron çalıştırın.
+              </span>
             </span>
           </div>
 
