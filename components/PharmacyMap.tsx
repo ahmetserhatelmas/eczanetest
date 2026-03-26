@@ -147,10 +147,10 @@ export default function PharmacyMap({
     return dutyPharmacyListSuspiciousSpread(pharmacies).suspicious;
   }, [flow, loading, pharmacies]);
 
-  /** Ana sayfa bandı: arama / SEO için tüm iller + nöbetçi eczane metni */
+  /** Ana sayfa bandı: arama / SEO için tüm iller + Nöbetçi Eczane metni */
   const citySeoMarqueeText = useMemo(
     () =>
-      TURKISH_PROVINCES.map((ilAd) => `${ilAd} Nöbetçi eczane`).join(" · "),
+      TURKISH_PROVINCES.map((ilAd) => `${ilAd} Nöbetçi Eczane`).join(" · "),
     []
   );
 
@@ -603,7 +603,7 @@ export default function PharmacyMap({
         <div
           className="seo-city-marquee-wrap -mx-4 mb-6 border-y border-slate-200/80 bg-white/90 py-2.5 shadow-sm"
           role="region"
-          aria-label="Türkiye illerinde nöbetçi eczane araması"
+          aria-label="Türkiye illerinde Nöbetçi Eczane araması"
         >
           <div className="overflow-hidden">
             <div className="seo-city-marquee-track text-[13px] leading-snug text-slate-500">
@@ -628,8 +628,8 @@ export default function PharmacyMap({
               Blog yazıları
             </Link>
           </div>
-          <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900">
-            Nöbetçi eczane
+          <h1 className="text-center text-2xl font-semibold tracking-tight text-red-600">
+            Nöbetçi Eczane
           </h1>
           <p className="text-center text-sm text-slate-600">
             Nasıl aramak istersiniz?
@@ -852,8 +852,8 @@ export default function PharmacyMap({
                 <>
                   <p className="text-sm font-semibold text-slate-900">
                     {nearbyExpandedToFullIl
-                      ? `${pharmacies.length} nöbetçi eczane · ~${NEARBY_RADIUS_KM} km · il geneli`
-                      : `${pharmacies.length} nöbetçi eczane · ~${NEARBY_RADIUS_KM} km`}
+                      ? `${pharmacies.length} Nöbetçi Eczane · ~${NEARBY_RADIUS_KM} km · il geneli`
+                      : `${pharmacies.length} Nöbetçi Eczane · ~${NEARBY_RADIUS_KM} km`}
                   </p>
                   {geoStatus === "ok" && (
                     <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
@@ -883,7 +883,7 @@ export default function PharmacyMap({
               <p className="text-sm font-semibold text-slate-900">
                 {loading
                   ? "Güncelleniyor…"
-                  : `${pharmacies.length} nöbetçi eczane${
+                  : `${pharmacies.length} Nöbetçi Eczane${
                       pharmacies.length > 0 &&
                       mappablePharmacyCount !== pharmacies.length
                         ? ` · ${mappablePharmacyCount} haritada`

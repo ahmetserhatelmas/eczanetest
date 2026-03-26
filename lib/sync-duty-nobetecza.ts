@@ -198,6 +198,7 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
   let staleDutyDatesPurged = false;
   let purgeError: string | null = null;
 
+  /* Tabloda yalnızca bu senkronun liste günü kalsın; eski duty_date satırlarının tamamı silinir. */
   if (provincesOk > 0 && DUTY_DATE_RE.test(dutyDateUsed)) {
     const { error: pErr } = await purgeDutyDatesExcept(supabase, dutyDateUsed);
     if (pErr) {
