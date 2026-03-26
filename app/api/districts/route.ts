@@ -106,7 +106,25 @@ export async function GET(req: NextRequest) {
 
   if (supabaseReadConfigured()) {
     try {
-      return await fetchDistrictsFromSupabase(il);
+      const supaRes = await fetchDistrictsFromSupabase(il);
+      if (
+        process.env.NOBETECZA_API_KEY?.trim() &&
+        supaRes.ok &&
+        supaRes.headers.get("content-type")?.includes("application/json")
+      ) {
+        const j = (await supaRes.clone().json()) as {
+          success?: boolean;
+          result?: unknown[];
+        };
+        if (
+          j.success === true &&
+          Array.isArray(j.result) &&
+          j.result.length === 0
+        ) {
+          return await fetchDistrictsFromNobetecza(il);
+        }
+      }
+      return supaRes;
     } catch (e) {
       return NextResponse.json(
         {

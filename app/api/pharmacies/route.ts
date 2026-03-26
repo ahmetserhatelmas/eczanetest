@@ -125,7 +125,25 @@ export async function GET(req: NextRequest) {
 
   if (supabaseReadConfigured()) {
     try {
-      return await fetchFromSupabase(il, ilce);
+      const supaRes = await fetchFromSupabase(il, ilce);
+      if (
+        process.env.NOBETECZA_API_KEY?.trim() &&
+        supaRes.ok &&
+        supaRes.headers.get("content-type")?.includes("application/json")
+      ) {
+        const j = (await supaRes.clone().json()) as {
+          success?: boolean;
+          result?: unknown[];
+        };
+        if (
+          j.success === true &&
+          Array.isArray(j.result) &&
+          j.result.length === 0
+        ) {
+          return await fetchFromNobeteczaDirect(il, ilce);
+        }
+      }
+      return supaRes;
     } catch (e) {
       return NextResponse.json(
         {

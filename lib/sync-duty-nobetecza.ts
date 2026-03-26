@@ -82,8 +82,13 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
   let provincesOk = 0;
   let provincesFailed = 0;
   let rowsInserted = 0;
-  let dutyDateUsed = dutyListDateIstanbul();
-  let dutyDateSetFromApi = false;
+  /**
+   * Okuma tarafı (`/api/pharmacies`) her zaman `dutyListDateIstanbul()` ile filtreler.
+   * API’nin döndürdüğü `tarih` bazen takvim günüyle (özellikle el değişimi saatinden önce)
+   * uyuşmayınca DB’de veri olup liste boş kalıyordu — kayıt gününü okumayla aynı yapıyoruz.
+   */
+  const listDate = dutyListDateIstanbul();
+  const dutyDateUsed = listDate;
 
   const total = TURKISH_PROVINCES.length;
 
@@ -97,20 +102,10 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
         throw new Error(body.message || "API başarısız");
       }
 
-      const tarih =
-        typeof body.tarih === "string" && DUTY_DATE_RE.test(body.tarih)
-          ? body.tarih
-          : dutyListDateIstanbul();
-
-      if (!dutyDateSetFromApi) {
-        dutyDateUsed = tarih;
-        dutyDateSetFromApi = true;
-      }
-
       const { error: delErr } = await supabase
         .from("duty_pharmacies")
         .delete()
-        .eq("duty_date", tarih)
+        .eq("duty_date", listDate)
         .eq("il", il);
 
       if (delErr) throw delErr;
@@ -125,7 +120,7 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
           typeof lng === "number" && Number.isFinite(lng) ? lng : null;
 
         rows.push({
-          duty_date: tarih,
+          duty_date: listDate,
           il: (row.il ?? il).trim() || il,
           ilce: (row.ilce ?? "").trim(),
           name: (row.ad ?? "").trim(),
