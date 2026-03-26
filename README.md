@@ -18,7 +18,7 @@ npm run dev
 
 ## Günlük veri çekimi
 
-Vercel’de `vercel.json` cron (~07:15 İstanbul) veya elle:
+Vercel’de `vercel.json` cron (her gün ~12:00 İstanbul, UTC 09:00) veya elle:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/sync-pharmacies"

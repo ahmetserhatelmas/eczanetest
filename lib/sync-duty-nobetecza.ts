@@ -22,6 +22,9 @@ export type NobeteczaSyncSummary = {
   rowsInserted: number;
   errors: { il: string; message: string }[];
   durationMs: number;
+  /** Güncel nöbet günü dışındaki tüm satırlar silindi mi */
+  staleDutyDatesPurged: boolean;
+  purgeError: string | null;
 };
 
 const DUTY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -40,6 +43,21 @@ function normalizePhone(t: string): string {
   if (!tel) return "";
   if (tel.startsWith("+") || tel.startsWith("0")) return tel;
   return `0${tel}`;
+}
+
+/** Sadece `keepDutyDate` kalsın; önceki nöbet günleri ve yanlış tarih kalıntıları silinir. */
+async function purgeDutyDatesExcept(
+  supabase: SupabaseClient,
+  keepDutyDate: string
+): Promise<{ error: Error | null }> {
+  if (!DUTY_DATE_RE.test(keepDutyDate)) {
+    return { error: new Error("Geçersiz duty_date; temizlik atlandı") };
+  }
+  const { error } = await supabase
+    .from("duty_pharmacies")
+    .delete()
+    .neq("duty_date", keepDutyDate);
+  return { error: error ? new Error(error.message) : null };
 }
 
 export async function syncDutyPharmaciesFromNobetecza(opts: {
@@ -65,6 +83,7 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
   let provincesFailed = 0;
   let rowsInserted = 0;
   let dutyDateUsed = dutyListDateIstanbul();
+  let dutyDateSetFromApi = false;
 
   const total = TURKISH_PROVINCES.length;
 
@@ -83,7 +102,10 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
           ? body.tarih
           : dutyListDateIstanbul();
 
-      if (i === 0) dutyDateUsed = tarih;
+      if (!dutyDateSetFromApi) {
+        dutyDateUsed = tarih;
+        dutyDateSetFromApi = true;
+      }
 
       const { error: delErr } = await supabase
         .from("duty_pharmacies")
@@ -137,6 +159,22 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
     }
   }
 
+  let staleDutyDatesPurged = false;
+  let purgeError: string | null = null;
+
+  if (provincesOk > 0 && DUTY_DATE_RE.test(dutyDateUsed)) {
+    const { error: pErr } = await purgeDutyDatesExcept(supabase, dutyDateUsed);
+    if (pErr) {
+      purgeError = pErr.message;
+      console.warn("[nobetecza-sync] Eski duty_date temizliği:", pErr.message);
+    } else {
+      staleDutyDatesPurged = true;
+      console.log(
+        `[nobetecza-sync] Eski tarihler silindi; kalan duty_date=${dutyDateUsed}`
+      );
+    }
+  }
+
   return {
     dutyDateUsed,
     provincesOk,
@@ -144,5 +182,7 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
     rowsInserted,
     errors,
     durationMs: Date.now() - start,
+    staleDutyDatesPurged,
+    purgeError,
   };
 }

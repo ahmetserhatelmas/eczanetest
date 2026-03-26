@@ -1,5 +1,9 @@
 import MapShell from "@/components/MapShell";
+import { getHomeBlogTeaser } from "@/lib/blog-queries";
 
-export default function Home() {
-  return <MapShell />;
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const homeBlogTeaser = await getHomeBlogTeaser();
+  return <MapShell homeBlogTeaser={homeBlogTeaser} />;
 }

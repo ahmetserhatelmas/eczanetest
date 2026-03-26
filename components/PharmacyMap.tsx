@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -27,6 +28,7 @@ import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { matchTurkishProvince } from "@/lib/match-turkish-province";
 import { parseLoc, type DutyPharmacy } from "@/lib/pharmacy";
 import { TURKISH_PROVINCES } from "@/lib/provinces";
+import type { BlogTeaser } from "@/lib/blog-types";
 
 const ANKARA_CENTER = { lat: 39.9334, lng: 32.8597 };
 const mapContainerStyle = { width: "100%", height: "100%" };
@@ -85,7 +87,11 @@ function formatIstanbulTs(iso: string) {
   }
 }
 
-export default function PharmacyMap() {
+export default function PharmacyMap({
+  homeBlogTeaser = null,
+}: {
+  homeBlogTeaser?: BlogTeaser | null;
+} = {}) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
 
   const { isLoaded, loadError } = useJsApiLoader({
@@ -584,6 +590,14 @@ export default function PharmacyMap() {
     return (
       <div className="flex min-h-dvh flex-col bg-gradient-to-b from-slate-50 to-white px-4 py-8">
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4">
+          <div className="text-center">
+            <Link
+              href="/blog"
+              className="text-lg font-semibold tracking-tight text-slate-900 transition hover:text-red-700"
+            >
+              Blog yazıları
+            </Link>
+          </div>
           <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900">
             Nöbetçi eczane
           </h1>
@@ -617,6 +631,27 @@ export default function PharmacyMap() {
               listelenir.
             </span>
           </button>
+          {homeBlogTeaser ? (
+            <Link
+              href={`/blog/${encodeURIComponent(homeBlogTeaser.slug)}`}
+              className="flex flex-col gap-1 rounded-2xl border border-red-100 bg-white p-4 text-left shadow-sm ring-1 ring-red-100/80 transition hover:border-red-200 hover:shadow-md active:scale-[0.99]"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-red-600">
+                Öne çıkan yazı
+              </span>
+              <span className="text-base font-semibold text-slate-900">
+                {homeBlogTeaser.title}
+              </span>
+              {homeBlogTeaser.excerpt.trim() ? (
+                <span className="line-clamp-2 text-sm leading-snug text-slate-600">
+                  {homeBlogTeaser.excerpt}
+                </span>
+              ) : null}
+              <span className="text-xs font-medium text-red-600">
+                Yazıyı oku →
+              </span>
+            </Link>
+          ) : null}
         </div>
       </div>
     );
@@ -766,120 +801,92 @@ export default function PharmacyMap() {
             </>
           )}
           {flow === "nearby" && (
-            <div className="min-w-0 flex-1 text-sm text-slate-700">
-              <span className="font-medium">Konumunuza yakın</span>
-              {detectedIl && (
-                <span className="text-slate-500">
+            <div className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+              Yakın
+              {detectedIl ? (
+                <>
                   {" "}
-                  · Tespit edilen il: <strong>{detectedIl}</strong>
-                </span>
-              )}
+                  · <span className="text-slate-600">{detectedIl}</span>
+                </>
+              ) : null}
             </div>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 gap-y-2 text-xs text-slate-500">
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            {nearbyBusy && <span>Konum ve liste hazırlanıyor…</span>}
-            {!nearbyBusy && flow === "nearby" && (
-              <>
-                <span>
-                  {nearbyExpandedToFullIl
-                    ? `${pharmacies.length} nöbetçi eczane (${NEARBY_RADIUS_KM} km içinde yok; tüm il mesafeye göre sıralı)`
-                    : `${pharmacies.length} nöbetçi eczane (~${NEARBY_RADIUS_KM} km)`}
-                </span>
-                {nearbyExpandedToFullIl && (
-                  <span className="text-amber-700/90">
-                    Yakın çemberde kayıt yok; haritada il geneli gösteriliyor.
-                  </span>
-                )}
-              </>
-            )}
-            {!nearbyBusy && flow === "manual" && (
-              <span>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          {flow === "nearby" && (
+            <div className="min-w-0 flex-1">
+              {nearbyBusy ? (
+                <p className="text-xs text-slate-500">Hazırlanıyor…</p>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {nearbyExpandedToFullIl
+                      ? `${pharmacies.length} nöbetçi eczane · ~${NEARBY_RADIUS_KM} km · il geneli`
+                      : `${pharmacies.length} nöbetçi eczane · ~${NEARBY_RADIUS_KM} km`}
+                  </p>
+                  {geoStatus === "ok" && (
+                    <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+                      Mavi halka ≈{NEARBY_MAP_FOCUS_RADIUS_KM} km
+                      {listLastSynced ? (
+                        <>
+                          {" "}
+                          · Veri:{" "}
+                          <span className="font-medium text-slate-600">
+                            {formatIstanbulTs(listLastSynced)}
+                          </span>
+                        </>
+                      ) : null}
+                    </p>
+                  )}
+                  {!nearbyBusy && nearbyExpandedToFullIl && (
+                    <p className="mt-0.5 text-[11px] text-amber-800">
+                      {NEARBY_RADIUS_KM} km içinde yok; mesafeye göre sıralı.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {flow === "manual" && (
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-900">
                 {loading
                   ? "Güncelleniyor…"
                   : `${pharmacies.length} nöbetçi eczane${
                       pharmacies.length > 0 &&
                       mappablePharmacyCount !== pharmacies.length
-                        ? ` · ${mappablePharmacyCount} haritada (${pharmacies.length - mappablePharmacyCount} kayıtta konum yok)`
+                        ? ` · ${mappablePharmacyCount} haritada`
                         : ""
                     }`}
-              </span>
-            )}
-            <span className="text-[11px] leading-snug text-slate-400">
-              Günlük liste · nöbet liste günü (bu gece–yarın sabah):{" "}
-              <span className="font-medium text-slate-500">
-                {listDutyDate ?? "—"}
-              </span>
-              {listSource && (
-                <span className="mt-0.5 block">
-                  Kaynak:{" "}
-                  <span className="font-medium text-slate-500">
-                    {listSource === "nobetecza"
-                      ? "nobetecza.com (doğrudan API)"
-                      : listSource === "supabase"
-                        ? "nobetecza.com (günlük güncellenen liste)"
-                        : listSource}
+              </p>
+              {listLastSynced ? (
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  Veri:{" "}
+                  <span className="font-medium text-slate-600">
+                    {formatIstanbulTs(listLastSynced)}
                   </span>
-                  {listLastSynced && (
-                    <>
-                      {" "}
-                      · {detectedIl ?? il} — son yazım:{" "}
-                      {formatIstanbulTs(listLastSynced)}
-                    </>
-                  )}
-                </span>
-              )}
-              <span className="mt-0.5 block text-slate-400">
-                {listSource === "supabase"
-                  ? "Günlük nöbetçi listesi; veri günde bir kez yenilenir, tarih yukarıda."
-                  : listSource === "nobetecza"
-                    ? "Veri her istekte nobetecza.com API’den gelir. Kotayı panelden takip edin."
-                    : "Veri kaynağı yukarıda belirtilir."}
-              </span>
-            </span>
-          </div>
-
-          {flow === "nearby" && (
-            <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center">
-              <span className="max-w-[14rem] text-right leading-snug">
-                {geoStatus === "ok" && (
-                  <>
-                    Mavi nokta sizsiniz
-                    <br />
-                    <span className="text-slate-400">
-                      Mavi halka ≈{NEARBY_MAP_FOCUS_RADIUS_KM} km (görsel). Liste
-                      ~{NEARBY_RADIUS_KM} km
-                    </span>
-                    {userAccuracyM != null && userAccuracyM > 0 && (
-                      <>
-                        <br />
-                        <span className="text-slate-400">
-                          GPS belirsizliği: ±~{Math.round(userAccuracyM)} m
-                        </span>
-                      </>
-                    )}
-                  </>
-                )}
-              </span>
-              <button
-                type="button"
-                disabled={locating}
-                onClick={() =>
-                  userPos ? goToMyLocation() : readLocation({ fresh: true, focusMap: true })
-                }
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
-              >
-                {userPos
-                  ? locating
-                    ? "…"
-                    : "Konuma git"
-                  : locating
-                    ? "…"
-                    : "Konumu yenile"}
-              </button>
+                </p>
+              ) : null}
             </div>
+          )}
+          {flow === "nearby" && (
+            <button
+              type="button"
+              disabled={locating}
+              onClick={() =>
+                userPos ? goToMyLocation() : readLocation({ fresh: true, focusMap: true })
+              }
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+            >
+              {userPos
+                ? locating
+                  ? "…"
+                  : "Konuma git"
+                : locating
+                  ? "…"
+                  : "Konumu yenile"}
+            </button>
           )}
         </div>
 

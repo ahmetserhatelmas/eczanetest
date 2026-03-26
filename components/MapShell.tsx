@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { BlogTeaser } from "@/lib/blog-types";
 
 const PharmacyMap = dynamic(() => import("@/components/PharmacyMap"), {
   ssr: false,
@@ -11,6 +12,10 @@ const PharmacyMap = dynamic(() => import("@/components/PharmacyMap"), {
   ),
 });
 
-export default function MapShell() {
-  return <PharmacyMap />;
+export default function MapShell({
+  homeBlogTeaser = null,
+}: {
+  homeBlogTeaser?: BlogTeaser | null;
+} = {}) {
+  return <PharmacyMap homeBlogTeaser={homeBlogTeaser} />;
 }
