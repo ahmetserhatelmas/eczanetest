@@ -147,6 +147,13 @@ export default function PharmacyMap({
     return dutyPharmacyListSuspiciousSpread(pharmacies).suspicious;
   }, [flow, loading, pharmacies]);
 
+  /** Ana sayfa bandı: arama / SEO için tüm iller + nöbetçi eczane metni */
+  const citySeoMarqueeText = useMemo(
+    () =>
+      TURKISH_PROVINCES.map((ilAd) => `${ilAd} Nöbetçi eczane`).join(" · "),
+    []
+  );
+
   const resetToChoose = useCallback(() => {
     setFlow("choose");
     setPharmacies([]);
@@ -593,6 +600,25 @@ export default function PharmacyMap({
   if (flow === "choose") {
     return (
       <div className="flex min-h-dvh flex-col bg-gradient-to-b from-slate-50 to-white px-4 py-8">
+        <div
+          className="seo-city-marquee-wrap -mx-4 mb-6 border-y border-slate-200/80 bg-white/90 py-2.5 shadow-sm"
+          role="region"
+          aria-label="Türkiye illerinde nöbetçi eczane araması"
+        >
+          <div className="overflow-hidden">
+            <div className="seo-city-marquee-track text-[13px] leading-snug text-slate-500">
+              <span className="inline-block shrink-0 pr-8 whitespace-nowrap">
+                {citySeoMarqueeText}
+              </span>
+              <span
+                className="inline-block shrink-0 pr-8 whitespace-nowrap"
+                aria-hidden
+              >
+                {citySeoMarqueeText}
+              </span>
+            </div>
+          </div>
+        </div>
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4">
           <div className="text-center">
             <Link

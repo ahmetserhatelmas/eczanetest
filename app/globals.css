@@ -24,3 +24,34 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Ana sayfa: iller + nöbetçi eczane SEO bandı (sonsuz kaydırma) */
+@keyframes seo-city-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.seo-city-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: seo-city-marquee 100s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seo-city-marquee-track {
+    animation: none;
+    display: block;
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  .seo-city-marquee-track span[aria-hidden="true"] {
+    display: none;
+  }
+}
