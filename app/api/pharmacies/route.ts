@@ -4,6 +4,7 @@ import { createAnonClient } from "@/lib/supabase/anon";
 import {
   fetchNobeteczaDuty,
   nobeteczaItemToDutyPharmacy,
+  parseNobeteczaOncekiGun,
 } from "@/lib/nobetecza";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +111,10 @@ async function fetchFromNobeteczaDirect(il: string, ilce: string) {
       source: "nobetecza",
       dutyDate: typeof body.tarih === "string" ? body.tarih : null,
       lastSyncedAt: null,
+      nobetecza: {
+        tarih: typeof body.tarih === "string" ? body.tarih : null,
+        oncekiGun: parseNobeteczaOncekiGun(body.onceki_gun),
+      },
     },
     { headers: noCacheHeaders }
   );

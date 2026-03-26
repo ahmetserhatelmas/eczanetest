@@ -57,8 +57,11 @@ async function handle(req: NextRequest) {
     supabase,
   });
 
+  const skipped = summary.skipped === true;
+
   return NextResponse.json({
-    success: summary.provincesFailed === 0,
+    success: skipped || summary.provincesFailed === 0,
+    skipped,
     source: "nobetecza→supabase",
     ...summary,
   });

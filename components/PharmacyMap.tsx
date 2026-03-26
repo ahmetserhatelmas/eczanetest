@@ -9,13 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Circle,
-  GoogleMap,
-  InfoWindow,
-  Marker,
-  useJsApiLoader,
-} from "@react-google-maps/api";
+import { Circle, GoogleMap, InfoWindow, Marker } from "@react-google-maps/api";
 import {
   boundsCornersForRadiusKm,
   distanceKm,
@@ -72,6 +66,8 @@ type PharmaciesApiJson = {
   dutyDate?: string;
   source?: string;
   lastSyncedAt?: string | null;
+  /** Doğrudan nobetecza yanıtından; `oncekiGun === true` ise liste önceki güne ait olabilir. */
+  nobetecza?: { tarih?: string | null; oncekiGun?: boolean | null };
   error?: string;
 };
 
@@ -89,15 +85,17 @@ function formatIstanbulTs(iso: string) {
 
 export default function PharmacyMap({
   homeBlogTeaser = null,
+  mapsLoaded,
+  mapsLoadError,
+  googleMapsApiKey,
 }: {
   homeBlogTeaser?: BlogTeaser | null;
-} = {}) {
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
-
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: "eczane-google-map",
-    googleMapsApiKey: apiKey,
-  });
+  mapsLoaded: boolean;
+  mapsLoadError: Error | undefined;
+  googleMapsApiKey: string;
+}) {
+  const isLoaded = mapsLoaded;
+  const loadError = mapsLoadError;
 
   const [flow, setFlow] = useState<Flow>("choose");
   const [il, setIl] = useState("Ankara");
@@ -130,6 +128,10 @@ export default function PharmacyMap({
   const [listDutyDate, setListDutyDate] = useState<string | null>(null);
   const [listSource, setListSource] = useState<string | null>(null);
   const [listLastSynced, setListLastSynced] = useState<string | null>(null);
+  /** nobetecza `onceki_gun`; true ise kaynak önceki güne ait liste diyebilir. */
+  const [listNobeteczaOncekiGun, setListNobeteczaOncekiGun] = useState<
+    boolean | null
+  >(null);
 
   const center = useMemo(() => userPos ?? ANKARA_CENTER, [userPos]);
 
@@ -167,6 +169,7 @@ export default function PharmacyMap({
     setListDutyDate(null);
     setListSource(null);
     setListLastSynced(null);
+    setListNobeteczaOncekiGun(null);
   }, []);
 
   const goToManualForm = useCallback(() => {
@@ -188,6 +191,7 @@ export default function PharmacyMap({
     setListDutyDate(null);
     setListSource(null);
     setListLastSynced(null);
+    setListNobeteczaOncekiGun(null);
   }, []);
 
   const backFromManualForm = useCallback(() => {
@@ -228,6 +232,7 @@ export default function PharmacyMap({
     setListDutyDate(null);
     setListSource(null);
     setListLastSynced(null);
+    setListNobeteczaOncekiGun(null);
     setNearbyBusy(true);
 
     if (!navigator.geolocation) {
@@ -359,11 +364,14 @@ export default function PharmacyMap({
       setListLastSynced(
         typeof data.lastSyncedAt === "string" ? data.lastSyncedAt : null
       );
+      const og = data.nobetecza?.oncekiGun;
+      setListNobeteczaOncekiGun(typeof og === "boolean" ? og : null);
     } catch (e) {
       setPharmacies([]);
       setListDutyDate(null);
       setListSource(null);
       setListLastSynced(null);
+      setListNobeteczaOncekiGun(null);
       setError(e instanceof Error ? e.message : "Hata");
     } finally {
       setLoading(false);
@@ -403,6 +411,7 @@ export default function PharmacyMap({
       setListDutyDate(null);
       setListSource(null);
       setListLastSynced(null);
+      setListNobeteczaOncekiGun(null);
 
       const geocoder = new google.maps.Geocoder();
       const geo = await new Promise<{
@@ -456,6 +465,8 @@ export default function PharmacyMap({
           setListLastSynced(
             typeof data.lastSyncedAt === "string" ? data.lastSyncedAt : null
           );
+          const og = data.nobetecza?.oncekiGun;
+          setListNobeteczaOncekiGun(typeof og === "boolean" ? og : null);
         }
 
         if (cancelled) return;
@@ -492,6 +503,7 @@ export default function PharmacyMap({
           setListDutyDate(null);
           setListSource(null);
           setListLastSynced(null);
+          setListNobeteczaOncekiGun(null);
           setError(e instanceof Error ? e.message : "Hata");
         }
       } finally {
@@ -568,14 +580,6 @@ export default function PharmacyMap({
   const selectedPos = selected ? parseLoc(selected.loc) : null;
   const selectedKm =
     selected != null ? pharmacyDistKm[distKey(selected)] : undefined;
-
-  if (!apiKey.trim()) {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-white px-4 text-center text-red-700">
-        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY eksik. `.env.local` dosyasını kontrol edin.
-      </div>
-    );
-  }
 
   if (loadError) {
     return (
@@ -893,6 +897,15 @@ export default function PharmacyMap({
         {error && (
           <p className="text-sm text-red-600" role="alert">
             {error}
+          </p>
+        )}
+        {listNobeteczaOncekiGun === true && (
+          <p
+            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-950"
+            role="status"
+          >
+            Kaynak: Liste henüz tam güncellenmemiş olabilir (önceki güne ait veri).
+            İllere göre yayın saati değişebilir; sabah saatlerinde tekrar deneyin.
           </p>
         )}
         {flow === "nearby" && geoStatus === "denied" && !nearbyBusy && (

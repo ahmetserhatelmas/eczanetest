@@ -33,8 +33,23 @@ export type NobeteczaResponse = {
   data?: NobeteczaItem[];
   adet?: number;
   tarih?: string;
+  /** Kaynak dokümantasyon: önceki gün listesi / güncellik ipucu (uyarı için). */
+  onceki_gun?: boolean | number | string;
   message?: string;
 };
+
+/** API `onceki_gun` alanını booleana çevirir; bilinmiyorsa `null`. */
+export function parseNobeteczaOncekiGun(value: unknown): boolean | null {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === "string") {
+    const s = value.trim().toLowerCase();
+    if (s === "1" || s === "true" || s === "evet") return true;
+    if (s === "0" || s === "false" || s === "hayir" || s === "hayır")
+      return false;
+  }
+  return null;
+}
 
 export async function fetchNobeteczaDuty(
   apiKey: string,
@@ -89,6 +104,108 @@ export async function fetchNobeteczaDuty(
   }
 
   return body;
+}
+
+const DUTY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Tek il isteğiyle “bugünün listesi API’de bizim beklediğimiz güne uyuyor mu?” kontrolü.
+ * Tüm illerin aynı anda güncellenme saati API’de yok; bu yüzden referans il + `tarih` / `onceki_gun`.
+ */
+export async function probeNobeteczaListReady(
+  apiKey: string,
+  ilTurkishName: string,
+  listDateExpected: string
+): Promise<{
+  apiOk: boolean;
+  readyForFullSync: boolean;
+  listDateExpected: string;
+  apiTarih: string | null;
+  oncekiGun: boolean | null;
+  eczaneAdet: number;
+  reason: string;
+}> {
+  const base = {
+    listDateExpected,
+    apiTarih: null as string | null,
+    oncekiGun: null as boolean | null,
+    eczaneAdet: 0,
+  };
+
+  if (!DUTY_DATE_RE.test(listDateExpected)) {
+    return {
+      ...base,
+      apiOk: false,
+      readyForFullSync: false,
+      reason: "Geçersiz listDateExpected",
+    };
+  }
+
+  const body = await fetchNobeteczaDuty(apiKey, ilTurkishName);
+  const apiTarih =
+    typeof body.tarih === "string" && DUTY_DATE_RE.test(body.tarih)
+      ? body.tarih
+      : null;
+  const oncekiGun = parseNobeteczaOncekiGun(body.onceki_gun);
+  const eczaneAdet = body.adet ?? body.data?.length ?? 0;
+
+  if (!body.success) {
+    return {
+      ...base,
+      apiTarih,
+      oncekiGun,
+      eczaneAdet,
+      apiOk: false,
+      readyForFullSync: false,
+      reason: body.message || "API başarısız",
+    };
+  }
+
+  if (!apiTarih) {
+    return {
+      ...base,
+      apiTarih: null,
+      oncekiGun,
+      eczaneAdet,
+      apiOk: true,
+      readyForFullSync: false,
+      reason: "Yanıtta geçerli tarih yok; hazırlık doğrulanamıyor",
+    };
+  }
+
+  if (apiTarih !== listDateExpected) {
+    return {
+      ...base,
+      apiTarih,
+      oncekiGun,
+      eczaneAdet,
+      apiOk: true,
+      readyForFullSync: false,
+      reason: `API tarihi (${apiTarih}) beklenen liste günü (${listDateExpected}) ile aynı değil`,
+    };
+  }
+
+  if (oncekiGun === true) {
+    return {
+      ...base,
+      apiTarih,
+      oncekiGun,
+      eczaneAdet,
+      apiOk: true,
+      readyForFullSync: false,
+      reason: "onceki_gun işaretli (önceki güne ait liste)",
+    };
+  }
+
+  return {
+    ...base,
+    apiTarih,
+    oncekiGun,
+    eczaneAdet,
+    apiOk: true,
+    readyForFullSync: true,
+    reason: "Referans il için liste günü uyumlu",
+  };
 }
 
 /** API satırını harita bileşeninin beklediği forma çevirir. */

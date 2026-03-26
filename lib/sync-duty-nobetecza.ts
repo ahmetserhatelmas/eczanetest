@@ -1,4 +1,4 @@
-import { fetchNobeteczaDuty } from "@/lib/nobetecza";
+import { fetchNobeteczaDuty, probeNobeteczaListReady } from "@/lib/nobetecza";
 import { dutyListDateIstanbul } from "@/lib/duty-date";
 import { TURKISH_PROVINCES } from "@/lib/provinces";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -25,6 +25,19 @@ export type NobeteczaSyncSummary = {
   /** Güncel nöbet günü dışındaki tüm satırlar silindi mi */
   staleDutyDatesPurged: boolean;
   purgeError: string | null;
+  /** Probe “hazır değil” dedi; 81 il çağrılmadı */
+  skipped?: boolean;
+  skipReason?: string;
+  probe?: {
+    il: string;
+    apiOk: boolean;
+    readyForFullSync: boolean;
+    listDateExpected: string;
+    apiTarih: string | null;
+    oncekiGun: boolean | null;
+    eczaneAdet: number;
+    reason: string;
+  };
 };
 
 const DUTY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -89,6 +102,34 @@ export async function syncDutyPharmaciesFromNobetecza(opts: {
    */
   const listDate = dutyListDateIstanbul();
   const dutyDateUsed = listDate;
+
+  const probeDisabled =
+    process.env.NOBETECZA_PROBE_BEFORE_SYNC === "0" ||
+    process.env.NOBETECZA_PROBE_BEFORE_SYNC === "false";
+
+  if (!probeDisabled) {
+    const probeIl = process.env.NOBETECZA_PROBE_IL?.trim() || "İstanbul";
+    const p = await probeNobeteczaListReady(apiKey, probeIl, listDate);
+    if (!p.readyForFullSync) {
+      console.warn(
+        `[nobetecza-sync] Tam senkron atlandı (${probeIl}): ${p.reason}`
+      );
+      return {
+        dutyDateUsed: listDate,
+        provincesOk: 0,
+        provincesFailed: 0,
+        rowsInserted: 0,
+        errors: [],
+        durationMs: Date.now() - start,
+        staleDutyDatesPurged: false,
+        purgeError: null,
+        skipped: true,
+        skipReason: p.reason,
+        probe: { il: probeIl, ...p },
+      };
+    }
+    console.log(`[nobetecza-sync] Probe OK (${probeIl}), tam senkron başlıyor…`);
+  }
 
   const total = TURKISH_PROVINCES.length;
 
