@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import SiteContact from "@/components/SiteContact";
+import SiteDisclaimer from "@/components/SiteDisclaimer";
 import { notFound } from "next/navigation";
 import { getPublishedPostBySlug } from "@/lib/blog-queries";
 
@@ -67,7 +68,8 @@ export default async function BlogPostPage({ params }: Props) {
         <div className="mt-8 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-800">
           {post.content}
         </div>
-        <div className="mt-12 border-t border-slate-200 pt-6">
+        <div className="mt-12 space-y-4 border-t border-slate-200 pt-6">
+          <SiteDisclaimer />
           <SiteContact />
         </div>
       </div>

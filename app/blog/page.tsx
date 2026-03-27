@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SiteContact from "@/components/SiteContact";
+import SiteDisclaimer from "@/components/SiteDisclaimer";
 import { getPublishedBlogPosts } from "@/lib/blog-queries";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +67,8 @@ export default async function BlogIndexPage() {
             ))
           )}
         </ul>
-        <div className="mt-10 border-t border-slate-200 pt-6">
+        <div className="mt-10 space-y-4 border-t border-slate-200 pt-6">
+          <SiteDisclaimer />
           <SiteContact />
         </div>
       </div>
