@@ -23,6 +23,7 @@ import { matchTurkishProvince } from "@/lib/match-turkish-province";
 import { parseLoc, type DutyPharmacy } from "@/lib/pharmacy";
 import { TURKISH_PROVINCES } from "@/lib/provinces";
 import type { BlogTeaser } from "@/lib/blog-types";
+import SiteContact from "@/components/SiteContact";
 
 const ANKARA_CENTER = { lat: 39.9334, lng: 32.8597 };
 const mapContainerStyle = { width: "100%", height: "100%" };
@@ -683,6 +684,9 @@ export default function PharmacyMap({
             </Link>
           ) : null}
         </div>
+        <div className="mx-auto mt-8 w-full max-w-md shrink-0 pb-2">
+          <SiteContact />
+        </div>
       </div>
     );
   }
@@ -759,6 +763,7 @@ export default function PharmacyMap({
           >
             Haritada göster
           </button>
+          <SiteContact className="mt-8 text-center text-xs text-slate-500" />
         </div>
       </div>
     );

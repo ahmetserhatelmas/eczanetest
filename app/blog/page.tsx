@@ -1,4 +1,5 @@
 import Link from "next/link";
+import SiteContact from "@/components/SiteContact";
 import { getPublishedBlogPosts } from "@/lib/blog-queries";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,9 @@ export default async function BlogIndexPage() {
             ))
           )}
         </ul>
+        <div className="mt-10 border-t border-slate-200 pt-6">
+          <SiteContact />
+        </div>
       </div>
     </div>
   );
